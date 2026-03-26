@@ -1,0 +1,17 @@
+/* Importamos Tailwind v4 */
+
+@import "tailwindcss";
+
+/* Aquí definimos tu tema de "The Adventurer's Hub" */
+@theme {
+  --color-fantasy-dark: #1a1a1d;
+  --color-fantasy-wood: #4e342e;
+  --color-fantasy-gold: #ffd700;
+  --color-fantasy-paper: #f5f5dc;
+}
+
+/* Estilos base */
+body {
+    background-color: var(--color-fantasy-dark);
+    color: var(--color-fantasy-paper);
+}
