@@ -1,235 +1,104 @@
 import os
-from dotenv import load_dotenv
-import uuid 
-from flask import Flask, jsonify, request, send_from_directory
-from flask_sqlalchemy import SQLAlchemy
-from werkzeug.security import generate_password_hash, check_password_hash
+import base64
+
+import uuid
 import jwt
+import json
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from flask_cors import CORS 
-import base64
-import json
-import requests
+from flask import Flask, jsonify, request, send_from_directory
+from flask_cors import CORS
+from flask_pymongo import PyMongo
+from bson.objectid import ObjectId # Para manejar los IDs de MongoDB
+from werkzeug.security import generate_password_hash, check_password_hash
+from google import genai
+from dotenv import load_dotenv
 
 import time
-
-
-
+import requests
 
 app = Flask(__name__)
 CORS(app)
 load_dotenv()
 
 
-# ==========================================
-# ARREGLO 1: LA RUTA ABSOLUTA
-# ==========================================
-# Esto obtiene la ruta exacta de la carpeta donde está guardado este archivo app.py
-basedir = os.path.abspath(os.path.dirname(__file__))
 BASE_URL = "http://201.188.5.134:5000" 
-# Así forzamos a Flask a buscar db.db EXACTAMENTE en esa misma carpeta, sin excusas.
-ruta_db = os.path.join(basedir, 'db.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + ruta_db
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config["MONGO_URI"] = "mongodb://localhost:27017/adventurers_hub"
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
 FOUNDRY_DATA_PATH = "/home/arturo/foundrydata/Data/imports"
 
-db = SQLAlchemy(app)
+mongo = PyMongo(app)
 
-if not os.path.exists(FOUNDRY_DATA_PATH):
-    os.makedirs(FOUNDRY_DATA_PATH)
+client = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
 
-# ==========================================
-# ARREGLO 2: COLUMNAS EXACTAS
-# ==========================================
-class Usuario(db.Model):
-    __tablename__ = 'Usuarios'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(50))
-    
-    # El primer texto entre comillas es el nombre EXACTO de tu columna en DB Browser
-    password_hash = db.Column('passwordHash', db.String(255))   
-    fecha_registro = db.Column('fechaRegistro', db.String(50))
-    assets = db.relationship('Asset', backref='creador', lazy=True)
-    campanas_unidas = db.relationship('UsuarioCampana', backref='usuario', lazy=True)
-
-class Campana(db.Model):
-    __tablename__ = 'Campanas' # Revisa si le pusiste 'Campanas' o 'Campañas'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    nombre = db.Column(db.String(100))
-    descripcion = db.Column(db.Text)
-    codigo_invitacion = db.Column('codigoInvitacion', db.String(20), unique=True)
-
-    # Relaciones
-    assets_campana = db.relationship('Asset', backref='campana', lazy=True)
-    usuarios_unidos = db.relationship('UsuarioCampana', backref='campana', lazy=True)
-
-
-# Tabla Intermedia (Asociación) para Muchos a Muchos
-class UsuarioCampana(db.Model):
-    __tablename__ = 'Usuarios_Campanas' 
-    
-    id = db.Column(db.Integer, primary_key=True)
-    # Claves foráneas (Foreign Keys) que apuntan a las tablas principales
-    usuario_id = db.Column('usuarioId', db.Integer, db.ForeignKey('Usuarios.id'))
-    campana_id = db.Column('campanaId', db.Integer, db.ForeignKey('Campanas.id'))
-    rol = db.Column('rolEnCampana', db.String(20)) # Aquí guardaremos 'DM' o 'Jugador'
-
-
-class Asset(db.Model):
-    __tablename__ = 'Assets'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    usuario_id = db.Column('usuarioId', db.Integer, db.ForeignKey('Usuarios.id'))
-    # campanaId puede estar vacío (nulo) si la imagen solo está en la galería personal
-    campana_id = db.Column('campanaId', db.Integer, db.ForeignKey('Campanas.id'), nullable=True) 
-    
-    tipo = db.Column(db.String(50)) # 'Retrato', 'Mapa', 'Texto', 'Local_Upload'
-    file_path = db.Column('filePath', db.String(255))
-    prompt_original = db.Column('promptOriginal', db.Text)
-    estado_aprobacion = db.Column('estadoAprobacion', db.String(20)) # 'Pendiente', 'Aprobado', 'Rechazado' 
-
-
-# ==========================================
 # GUARDIA DE SEGURIDAD (Decorador JWT)
 # ==========================================
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
-        
-        # 1. Buscamos el token en las cabeceras de la petición
         if 'Authorization' in request.headers:
-            # El formato estándar es "Bearer <token>", así que lo separamos
             auth_header = request.headers['Authorization']
             if len(auth_header.split(" ")) == 2:
                 token = auth_header.split(" ")[1]
         
-        # 2. Si no hay token, lo rebotamos
         if not token:
-            return jsonify({"error": "Falta el token de autenticación. ¡Acceso denegado!"}), 401
+            return jsonify({"error": "Acceso denegado"}), 401
         
-        # 3. Intentamos decodificar el token para ver si es válido y no ha expirado
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            # Buscamos al usuario en la base de datos usando el ID que venía dentro del token
-            usuario_actual = Usuario.query.get(data['usuario_id'])
-            
+            # Buscamos en la colección 'usuarios' de MongoDB
+            usuario_actual = mongo.db.usuarios.find_one({"_id": ObjectId(data['usuario_id'])})
             if not usuario_actual:
-                return jsonify({"error": "El usuario del token ya no existe"}), 401
-                
-        except jwt.ExpiredSignatureError:
-            return jsonify({"error": "El token ha expirado. Por favor, inicia sesión nuevamente"}), 401
-        except jwt.InvalidTokenError:
+                return jsonify({"error": "Usuario no encontrado"}), 401
+        except:
             return jsonify({"error": "Token inválido"}), 401
             
-        # 4. Si todo está bien, lo dejamos pasar y le entregamos el usuario a la ruta
         return f(usuario_actual, *args, **kwargs)
-        
     return decorated
 
-@app.route('/api/test-db')
-def test_db():
-    try:
-        usuarios_db = Usuario.query.all()
-        lista_usuarios = []
-        for u in usuarios_db:
-            lista_usuarios.append({
-                "id": u.id,
-                "username": u.username
-            })
-            
-        return jsonify({
-            "status": "success",
-            "mensaje": "¡Conexión exitosa a db.db!",
-            "cantidad_usuarios": len(lista_usuarios),
-            "usuarios": lista_usuarios,
-            "ruta_leida": ruta_db  # Te muestro la ruta exacta para confirmar
-        })
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "mensaje": str(e)
-        }), 500
 
 
+# 3. RUTAS DE AUTENTICACIÓN
 @app.route('/api/registro', methods=['POST'])
 def registro():
-    # 1. Obtenemos los datos que nos envía el frontend (React o Insomnia/Postman)
     datos = request.get_json()
+    if mongo.db.usuarios.find_one({"username": datos['username']}):
+        return jsonify({"error": "El usuario ya existe"}), 409
     
-    # 2. Validamos que nos hayan enviado usuario y contraseña
-    if not datos or not datos.get('username') or not datos.get('password'):
-        return jsonify({"error": "Faltan datos. Se requiere username y password"}), 400
+    nuevo_usuario = {
+        "username": datos['username'],
+        "password_hash": generate_password_hash(datos['password']),
+        "fecha_registro": datetime.now(timezone.utc)
+    }
+    mongo.db.usuarios.insert_one(nuevo_usuario)
+    return jsonify({"status": "success", "mensaje": "Usuario creado"}), 201
 
-    username = datos['username']
-    password_texto_plano = datos['password']
-
-    # 3. Verificamos si el usuario ya existe en la base de datos
-    usuario_existente = Usuario.query.filter_by(username=username).first()
-    if usuario_existente:
-        return jsonify({"error": "El nombre de usuario ya está en uso"}), 409
-
-    # 4. Encriptamos la contraseña (¡NUNCA guardar en texto plano!)
-    password_encriptada = generate_password_hash(password_texto_plano)
-    
-    # Obtenemos la fecha actual en formato texto
-    fecha_actual = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    # 5. Creamos el nuevo usuario en Python
-    nuevo_usuario = Usuario(
-        username=username, 
-        password_hash=password_encriptada,
-        fecha_registro=fecha_actual
-    )
-
-    # 6. Lo guardamos en la base de datos real
-    try:
-        db.session.add(nuevo_usuario)
-        db.session.commit() # Esto es como presionar "Guardar"
-        return jsonify({
-            "status": "success",
-            "mensaje": f"Usuario '{username}' creado exitosamente."
-        }), 201
-    except Exception as e:
-        db.session.rollback() # Si algo falla, deshacemos el cambio
-        return jsonify({"error": "Error al guardar en la base de datos", "detalle": str(e)}), 500
     
 
 @app.route('/api/login', methods=['POST'])
 def login():
     datos = request.get_json()
+    usuario = mongo.db.usuarios.find_one({"username": datos['username']})
     
-    # 1. Validar que nos enviaron los datos
-    if not datos or not datos.get('username') or not datos.get('password'):
-        return jsonify({"error": "Faltan datos. Se requiere username y password"}), 400
+    if not usuario or not check_password_hash(usuario['password_hash'], datos['password']):
+        return jsonify({"error": "Credenciales inválidas"}), 401
         
-    # 2. Buscar al usuario en la base de datos
-    usuario = Usuario.query.filter_by(username=datos['username']).first()
-    
-    # 3. Verificar si el usuario existe y si la contraseña coincide con el hash
-    if not usuario or not check_password_hash(usuario.password_hash, datos['password']):
-        return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
-        
-    # 4. Crear el Token JWT (La pulsera VIP)
-    # Le ponemos el ID del usuario y decimos que expira en 24 horas
-    token_payload = {
-        'usuario_id': usuario.id,
+    token = jwt.encode({
+        'usuario_id': str(usuario['_id']),
         'exp': datetime.now(timezone.utc) + timedelta(hours=24)
-    }
+    }, app.config['SECRET_KEY'], algorithm='HS256')
     
-    token = jwt.encode(token_payload, app.config['SECRET_KEY'], algorithm='HS256')
-    
-    # 5. Devolver el token al frontend
-    return jsonify({
-        "status": "success",
-        "mensaje": f"¡Bienvenido de vuelta, {usuario.username}!",
-        "token": token
-    }), 200
+    return jsonify({"status": "success", "token": token, "username": usuario['username']})
+
+
+
+
+
+
+
+
 
 @app.route('/api/perfil', methods=['GET'])
 @token_required # <--- ¡Aquí está la magia! Solo los que tengan pase entran.
@@ -249,126 +118,107 @@ def obtener_perfil(usuario_actual):
 @token_required
 def crear_campana(usuario_actual):
     datos = request.get_json()
-    
-    # 1. Validar datos mínimos
-    if not datos or not datos.get('nombre'):
-        return jsonify({"error": "La campaña necesita un nombre"}), 400
-        
-    nombre = datos['nombre']
-    descripcion = datos.get('descripcion', "") # Si no envían descripción, ponemos texto vacío
-    
-    # 2. Generar código de invitación único (6 caracteres en mayúscula)
-    # uuid4 genera algo como "a8098c1a-28...", tomamos los primeros 6 y los ponemos en mayúscula
-    codigo_unico = str(uuid.uuid4())[:6].upper()
-    
-    # 3. Crear el objeto Campaña
-    nueva_campana = Campana(
-        nombre=nombre,
-        descripcion=descripcion,
-        codigo_invitacion=codigo_unico
-    )
-    
-    try:
-        # Guardamos la campaña primero para que la base de datos le asigne un ID
-        db.session.add(nueva_campana)
-        db.session.flush() # 'flush' envía los datos pero no cierra la transacción todavía
-        
-        # 4. ¡EL PASO CLAVE! Asignar al creador como DM en la tabla intermedia
-        relacion_dm = UsuarioCampana(
-            usuario_id=usuario_actual.id,
-            campana_id=nueva_campana.id, # Aquí usamos el ID que se acaba de generar
-            rol='DM'
-        )
-        
-        db.session.add(relacion_dm)
-        
-        # Ahora sí, confirmamos todos los cambios (Campaña + Relación)
-        db.session.commit()
-        
-        return jsonify({
-            "status": "success",
-            "mensaje": f"Campaña '{nombre}' creada exitosamente.",
-            "datos_campana": {
-                "id": nueva_campana.id,
-                "nombre": nueva_campana.nombre,
-                "codigo_invitacion": nueva_campana.codigo_invitacion,
-                "rol_asignado": "DM"
-            }
-        }), 201
-        
-    except Exception as e:  
-        db.session.rollback()
-        return jsonify({"error": "Error al crear la campaña", "detalle": str(e)}), 500
-    
+    nueva_campana = {
+        "nombre": datos['nombre'],
+        "descripcion": datos.get('descripcion', ""),
+        "codigo_invitacion": str(uuid.uuid4())[:6].upper(),
+        "dm_id": usuario_actual['_id'],
+        "jugadores": [] # Lista de IDs de jugadores unidos
+    }
+    resultado = mongo.db.campanas.insert_one(nueva_campana)
+    return jsonify({
+        "status": "success", 
+        "id": str(resultado.inserted_id),
+        "codigo": nueva_campana['codigo_invitacion']
+    }), 201
+
+
+
 @app.route('/api/campanas', methods=['GET'])
 @token_required
-def obtener_mis_campanas(usuario_actual):
-    mis_partidas = []
-
-    # Gracias a SQLAlchemy, 'usuario_actual.campanas_unidas' nos da 
-    # la lista de filas de la tabla intermedia automáticamente.
-    for union in usuario_actual.campanas_unidas:
-        partida = union.campana # Accedemos a los datos de la campaña
-        
-        mis_partidas.append({
-            "id": partida.id,
-            "nombre": partida.nombre,
-            "descripcion": partida.descripcion,
-            "mi_rol": union.rol, # Aquí dirá 'DM' o 'Jugador'
-            # Solo mostramos el código de invitación si eres el DM
-            "codigo_invitacion": partida.codigo_invitacion if union.rol == 'DM' else "Oculto"
-        })
+def obtener_campanas(usuario_actual):
+    # Buscamos campañas donde soy DM o donde estoy en la lista de jugadores
+    query = {
+        "$or": [
+            {"dm_id": usuario_actual['_id']},
+            {"jugadores": usuario_actual['_id']}
+        ]
+    }
+    campanas = mongo.db.campanas.find(query)
     
-    return jsonify({
-        "status": "success",
-        "cantidad": len(mis_partidas),
-        "mis_campanas": mis_partidas
-    }), 200
+    resultado = []
+    for c in campanas:
+        resultado.append({
+            "id": str(c['_id']),
+            "nombre": c['nombre'],
+            "descripcion": c['descripcion'],
+            "rol": "DM" if c['dm_id'] == usuario_actual['_id'] else "Jugador",
+            "codigo_invitacion": c['codigo_invitacion'] if c['dm_id'] == usuario_actual['_id'] else "Oculto"
+        })
+    return jsonify({"status": "success", "mis_campanas": resultado})
+
+
 
 @app.route('/api/ia/npc-rapido', methods=['POST'])
 @token_required
-def generar_npc_rapido(usuario_actual):
+def generar_npc(usuario_actual):
+    print("--- 🤖 INICIANDO GENERACIÓN DE NPC (MODO SEGURO) ---")
     datos = request.get_json()
-    idea_base = datos.get('idea', 'Un personaje de fantasía medieval aleatorio')
+    idea = datos.get('idea', 'Un NPC de taberna')
     
+    # 1. Aseguramos que la API KEY esté cargada
     api_key = os.getenv('GOOGLE_API_KEY')
     if not api_key:
-        return jsonify({"error": "Falta la API Key"}), 500
+        return jsonify({"error": "No se encontró la GOOGLE_API_KEY en el .env"}), 500
 
-    try:
-        from google import genai
-        client = genai.Client(api_key=api_key)
-        
-        prompt = f"""
-        Actúa como un Dungeon Master experto de D&D 5e.
-        Genera un NPC creativo basado en esta idea: "{idea_base}".
-        Responde ÚNICAMENTE con un JSON válido (sin markdown) con esta estructura:
-        {{
-            "nombre": "Nombre",
-            "raza": "Raza",
-            "clase": "Clase",
-            "personalidad": "Una frase",
-            "gancho": "Un motivo para hablar con él"
-        }}
-        """
-        
-        # MODELO ELEGIDO SEGÚN TU LISTA: gemini-flash-lite-latest
-        response = client.models.generate_content(
-            model='gemini-flash-lite-latest', 
-            contents=prompt
-        )
-        
-        texto_limpio = response.text.replace('```json', '').replace('```', '').strip()
-        
-        return jsonify({
-            "status": "success",
-            "resultado": texto_limpio
-        }), 200
-        
-    except Exception as e:
-        return jsonify({"error": "Fallo en la IA", "detalle": str(e)}), 500
+    # 2. El Prompt (Lo mantenemos simple para evitar errores)
+    prompt = f"Genera un NPC de D&D 5e basado en: {idea}. Responde SOLO con un JSON con campos: nombre, raza, clase, personalidad, gancho."
+
+    # 3. Lista de modelos a probar (en orden de probabilidad de éxito)
+    modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest']
     
+    last_error = ""
 
+    from google import genai
+    client_ia = genai.Client(api_key=api_key)
+
+    for model_name in modelos_a_probar:
+        try:
+            print(f"Probando modelo: {model_name}...")
+            response = client_ia.models.generate_content(
+                model=model_name,
+                contents=prompt
+            )
+            
+            # Si llegamos aquí, ¡funcionó!
+            texto = response.text.replace('```json', '').replace('```', '').strip()
+            print(f"✅ Éxito con el modelo: {model_name}")
+            
+            return jsonify({
+                "status": "success",
+                "modelo_usado": model_name,
+                "resultado": texto
+            })
+
+        except Exception as e:
+            last_error = str(e)
+            print(f"❌ Falló {model_name}: {last_error[:100]}...")
+            
+            # Si el error es de CUOTA (429), no seguimos probando modelos, hay que esperar.
+            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
+                return jsonify({
+                    "error": "Límite de la IA alcanzado",
+                    "detalle": "Has hecho muchas peticiones muy rápido. Espera 60 segundos y vuelve a intentar."
+                }), 429
+            
+            # Si es otro error, el bucle intentará con el siguiente modelo de la lista
+            continue
+
+    # Si terminamos el bucle y ninguno funcionó:
+    return jsonify({
+        "error": "No se pudo conectar con ningún modelo de IA disponible",
+        "detalle": last_error
+    }), 500
 
 @app.route('/api/ia/diagnostico', methods=['GET'])
 def listar_modelos():
@@ -397,98 +247,152 @@ def listar_modelos():
 def guardar_asset(usuario_actual):
     datos = request.get_json()
     
-    # Validamos que vengan los datos mínimos
+    # 1. Validamos datos mínimos
     if not datos or not datos.get('tipo') or not datos.get('contenido'):
-        return jsonify({"error": "Faltan datos del asset"}), 400
+        return jsonify({"error": "Faltan datos del asset (tipo o contenido)"}), 400
         
-    nuevo_asset = Asset(
-        usuario_id=usuario_actual.id,
-        tipo=datos['tipo'], # 'Retrato', 'Mapa', 'NPC', etc.
-        prompt_original=datos['contenido'], # Guardamos el JSON o el Prompt
-        estado_aprobacion='Aprobado' # Los de la galería personal están aprobados por defecto
-    )
+    tipo = datos['tipo']
+    contenido = datos['contenido']
+
+    # 2. Lógica inteligente para el contenido
+    # Si es un NPC y viene como string, intentamos convertirlo a objeto 
+    # para que en MongoDB se guarde de forma estructurada.
+    if tipo == 'NPC' and isinstance(contenido, str):
+        try:
+            contenido = json.loads(contenido)
+        except:
+            pass # Si falla, lo dejamos como string (no pasa nada)
+
+    # 3. Creamos el documento para MongoDB
+    nuevo_asset = {
+        "usuario_id": usuario_actual['_id'], # Usamos el ObjectId del usuario logueado
+        "tipo": tipo,
+        "prompt_original": contenido,
+        "estado_aprobacion": 'Aprobado',
+        "fecha_creacion": datetime.now() # Siempre es bueno tener la fecha en Mongo
+    }
     
     try:
-        db.session.add(nuevo_asset)
-        db.session.commit()
+        # 4. Insertamos en la colección 'assets'
+        resultado = mongo.db.assets.insert_one(nuevo_asset)
+        
         return jsonify({
             "status": "success", 
-            "mensaje": "Asset guardado en tu galería",
-            "asset_id": nuevo_asset.id
+            "mensaje": "Asset guardado exitosamente en tus crónicas",
+            "asset_id": str(resultado.inserted_id) # Convertimos el ID de Mongo a string
         }), 201
+        
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": "Error al guardar", "detalle": str(e)}), 500
+        # En MongoDB no hace falta "rollback", simplemente capturamos el error
+        print(f"Error al guardar asset: {e}")
+        return jsonify({"error": "Error al guardar en la base de datos", "detalle": str(e)}), 500
 
 
 @app.route('/api/assets', methods=['GET'])
 @token_required
 def obtener_assets(usuario_actual):
     try:
-        mis_assets = Asset.query.filter_by(usuario_id=usuario_actual.id).all()
+        # 1. En MongoDB buscamos en la colección 'assets' usando el _id del usuario
+        # Recordatorio: usuario_actual ahora es un diccionario
+        cursor_assets = mongo.db.assets.find({"usuario_id": usuario_actual['_id']})
+        
+        # Define tu IP actual o usa una variable de entorno
+        BASE_URL = "http://201.188.5.134:5000" 
         
         lista_assets = []
-        for a in mis_assets:
+        
+        for a in cursor_assets:
             info_npc = None
-            
-            # Si es un NPC, intentamos convertir el string de la DB a un diccionario de Python
-            if a.tipo == 'NPC' and a.prompt_original:
-                try:
-                    # Si ya es un dict por algún motivo, no lo cargamos, si es string, sí
-                    if isinstance(a.prompt_original, str):
-                        info_npc = json.loads(a.prompt_original)
-                    else:
-                        info_npc = a.prompt_original
-                except:
-                    info_npc = {"nombre": "Error", "personalidad": "Datos corruptos"}
+            tipo = a.get('tipo')
+            prompt_orig = a.get('prompt_original', '')
+            file_path = a.get('file_path')
 
-            # Construcción de la URL de imagen
+            # 2. Lógica para NPCs (JSON)
+            if tipo == 'NPC' and prompt_orig:
+                # En MongoDB podrías haber guardado el JSON como string o como objeto
+                if isinstance(prompt_orig, str):
+                    try:
+                        info_npc = json.loads(prompt_orig)
+                    except:
+                        info_npc = {"nombre": "Error", "personalidad": "Formato inválido"}
+                else:
+                    # Si ya es un diccionario (objeto nativo de Mongo), lo usamos directo
+                    info_npc = prompt_orig
+
+            # 3. Construcción de la URL de imagen (si tiene path)
             url_imagen = None
-            if a.file_path:
-                path_limpio = a.file_path.strip('/')
-                url_imagen = f"{BASE_URL}/foundry_assets/{path_limpio}" if not path_limpio.startswith('foundry_assets') else f"{BASE_URL}/{path_limpio}"
-            
+            if file_path:
+                path_limpio = file_path.strip('/')
+                if not path_limpio.startswith('foundry_assets'):
+                    url_imagen = f"{BASE_URL}/foundry_assets/{path_limpio}"
+                else:
+                    url_imagen = f"{BASE_URL}/{path_limpio}"
+
+            # 4. Formatear el nombre para mostrar
+            # Si hay info_npc usamos su nombre, si no, el prompt original o el nombre del archivo
+            nombre_display = "Sin nombre"
+            if info_npc and isinstance(info_npc, dict):
+                nombre_display = info_npc.get('nombre', 'NPC Desconocido')
+            elif prompt_orig:
+                nombre_display = prompt_orig
+            elif file_path:
+                nombre_display = file_path.split('/')[-1]
+
+            # 5. Agregar a la lista convirtiendo el ID a string
             lista_assets.append({
-                "id": a.id,
-                "tipo": a.tipo,
-                "nombre": a.prompt_original if not info_npc else info_npc.get('nombre'),
+                "id": str(a['_id']),  # <--- IMPORTANTE: Convertir ObjectId a string para JSON
+                "tipo": tipo,
+                "nombre": nombre_display,
                 "url": url_imagen,
-                "detalles": info_npc  # <--- Esto llegará a React como un objeto listo
+                "detalles": info_npc  
             })
             
-        return jsonify({"status": "success", "assets": lista_assets}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route('/api/assets/<int:asset_id>', methods=['DELETE'])
-@token_required
-def eliminar_asset(usuario_actual, asset_id):
-    # 1. Buscamos el asset en la base de datos
-    asset = Asset.query.get(asset_id)
-    
-    # 2. Verificamos si existe
-    if not asset:
-        return jsonify({"error": "El registro no existe"}), 404
-        
-    # 3. SEGURIDAD: Verificamos que el asset pertenezca al usuario logueado
-    if asset.usuario_id != usuario_actual.id:
-        return jsonify({"error": "No tienes permiso para borrar este tesoro"}), 403
-        
-    try:
-        # 4. Lo eliminamos de la sesión y guardamos cambios
-        db.session.delete(asset)
-        db.session.commit()
-        
         return jsonify({
-            "status": "success",
-            "mensaje": "Asset eliminado permanentemente del disco y la base de datos"
+            "status": "success", 
+            "assets": lista_assets
         }), 200
         
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": "Error al eliminar", "detalle": str(e)}), 500
+        print(f"Error al obtener assets: {e}")
+        return jsonify({"error": "Error al leer la galería", "detalle": str(e)}), 500
 
+
+@app.route('/api/assets/<asset_id>', methods=['DELETE']) # Quitamos el <int:> porque en Mongo es un string
+@token_required
+def eliminar_asset(usuario_actual, asset_id):
+    try:
+        # 1. Buscamos el asset en MongoDB convirtiendo el string a un ObjectId real
+        asset = mongo.db.assets.find_one({"_id": ObjectId(asset_id)})
+        
+        # 2. Verificamos si existe
+        if not asset:
+            return jsonify({"error": "El registro no existe en las crónicas"}), 404
+            
+        # 3. SEGURIDAD: Verificamos que el asset pertenezca al usuario logueado
+        # Comparamos el ID del dueño con el ID del usuario actual (ambos son ObjectIds)
+        if asset['usuario_id'] != usuario_actual['_id']:
+            return jsonify({"error": "No tienes permiso para borrar este tesoro"}), 403
+            
+        # 4. BORRADO FÍSICO (Opcional pero recomendado en tu LLD)
+        # Si el asset tiene un archivo en el disco, lo eliminamos
+        if asset.get('file_path'):
+            # Construimos la ruta absoluta usando la variable que definimos antes
+            ruta_fisica = os.path.join(FOUNDRY_DATA_PATH, asset['file_path'])
+            if os.path.exists(ruta_fisica):
+                os.remove(ruta_fisica)
+                print(f"✅ Archivo eliminado del disco: {ruta_fisica}")
+
+        # 5. BORRADO EN BASE DE DATOS
+        mongo.db.assets.delete_one({"_id": ObjectId(asset_id)})
+        
+        return jsonify({
+            "status": "success",
+            "mensaje": "Asset purgado permanentemente de la base de datos y el disco"
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error al eliminar: {e}")
+        return jsonify({"error": "Error al procesar la eliminación", "detalle": str(e)}), 500
 
 @app.route('/api/ia/generar-imagen', methods=['POST'])
 @token_required
@@ -496,113 +400,138 @@ def generar_imagen_preview(usuario_actual):
     datos = request.get_json()
     npc_info = datos.get('prompt', 'A fantasy character')
     
-    print(f"--- 🎨 GENERANDO RETRATO CON FLUX (NUEVA RUTA HF) ---")
+    print(f"--- 🎨 GENERANDO RETRATO (MONGO VERSION) ---")
     
     try:
-        # 1. Gemini genera el prompt (esto ya sabemos que funciona perfecto)
-        from google import genai
-        client_gemini = genai.Client(api_key=os.getenv('GOOGLE_API_KEY'))
-        
+        # 1. Gemini genera el prompt artístico (Usando el cliente ya configurado)
+        # Usamos gemini-1.5-flash que es el que nos funcionó por cuota
         prompt_request = f"""
-        You are a professional Concept Artist for high-end fantasy games like Baldur's Gate 3 and Diablo IV.
-        Convert this NPC description into a LEGENDARY-TIER image prompt for the FLUX model: "{npc_info}".
-        
-        The prompt MUST follow this structure in English:
-        1. **Subject:** Ultra-detailed head-and-shoulders portrait of the character. Describe facial features, expression, and unique markings.
-        2. **Materials:** Specific textures like scratched plate armor, weathered leather, embroidered silk, or translucent skin.
-        3. **Style:** A mix of 'Hyper-realistic digital oil painting' and 'Official D&D sourcebook illustration'. Sharp focus.
-        4. **Lighting:** Cinematic lighting, volumetric god-rays, rim lighting to separate the character from the background, and ambient tavern or magical glow.
-        5. **Composition:** Close-up shot, shallow depth of field (bokeh background), 8k resolution, masterpiece, trending on ArtStation.
-        
-        IMPORTANT: Output ONLY the resulting English prompt, no explanations or quotes.
+        You are a professional Concept Artist. 
+        Convert this description into a high-end fantasy prompt for FLUX: "{npc_info}".
+        Describe lighting, textures, and cinematic composition.
+        Output ONLY the resulting English prompt.
         """
-        res_prompt = client_gemini.models.generate_content(
-            model='gemini-flash-latest',
+        
+        # 'client' es el que definimos arriba en app.py con google.genai
+        res_prompt = client.models.generate_content(
+            model='gemini-1.5-flash',
             contents=prompt_request
         )
         art_prompt = res_prompt.text.strip()
 
-        # 2. NUEVA URL DEL ROUTER DE HUGGING FACE
-        # Hemos cambiado 'api-inference' por 'router'
+        # 2. Configuración Hugging Face
         API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
         headers = {"Authorization": f"Bearer {os.getenv('HUGGINGFACE_API_KEY')}"}
         
-        print(f"Enviando a Flux via Router: {art_prompt[:50]}...")
+        image_base64 = None
         
-        # Intentos por si el modelo está "calentando"
+        # Intentos por si el modelo está despertando
         for intento in range(3):
-            # Enviamos la petición
             response = requests.post(API_URL, headers=headers, json={"inputs": art_prompt}, timeout=60)
             
             if response.status_code == 200:
                 image_base64 = base64.b64encode(response.content).decode('utf-8')
                 print("✅ Imagen generada con éxito")
-                return jsonify({
-                    "status": "success",
-                    "image_b64": image_base64
-                }), 200
-            
-            elif response.status_code == 503 or response.status_code == 429:
-                # 503: Cargando modelo / 429: Demasiadas peticiones, esperamos
-                print(f"Aviso: El modelo está ocupado o cargando (Error {response.status_code})... reintento {intento+1}")
-                time.sleep(8) # Esperamos un poco más
+                break
+            elif response.status_code in [503, 429]:
+                print(f"Modelo ocupado (Error {response.status_code}), reintentando {intento+1}...")
+                time.sleep(8)
             else:
                 print(f"❌ Error HF ({response.status_code}): {response.text}")
                 break
 
-        return jsonify({"error": "Hugging Face no pudo procesar la imagen tras varios intentos"}), 504
+        if not image_base64:
+            return jsonify({"error": "No se pudo obtener la imagen de Hugging Face"}), 504
+
+        # 3. OPCIONAL: Guardar un log de la generación en MongoDB
+        # Esto es útil para saber cuántas imágenes genera cada usuario
+        log_generacion = {
+            "usuario_id": usuario_actual['_id'],
+            "prompt_original": npc_info,
+            "art_prompt": art_prompt,
+            "fecha": datetime.now(timezone.utc),
+            "tipo_ia": "FLUX.1-schnell"
+        }
+        mongo.db.logs_generacion.insert_one(log_generacion)
+
+        return jsonify({
+            "status": "success",
+            "image_b64": image_base64,
+            "art_prompt": art_prompt # Lo devolvemos por si quieres mostrarlo en el front
+        }), 200
 
     except Exception as e:
-        print(f"❌ ERROR: {str(e)}")
+        print(f"❌ ERROR IA: {str(e)}")
         return jsonify({"error": "Fallo en el proceso artístico", "detalle": str(e)}), 500
-
 @app.route('/api/assets/guardar-imagen', methods=['POST'])
 @token_required
 def confirmar_guardado_imagen(usuario_actual):
     datos = request.get_json()
     image_b64 = datos.get('image_b64')
+    
+    # Sanitizamos los nombres para evitar problemas de rutas
     nombre_npc = datos.get('nombre_npc', 'personaje').replace(" ", "_")
     campana_nombre = datos.get('campana_nombre', 'galeria_personal').replace(" ", "_")
+    username = usuario_actual['username']
+
+    if not image_b64:
+        return jsonify({"error": "Falta la imagen en formato base64"}), 400
 
     try:
-        # 1. Preparar la ruta de carpetas
-        # /home/arturo/foundrydata/Data/imports/Campaña/Jugador/
-        ruta_carpeta = os.path.join(FOUNDRY_DATA_PATH, campana_nombre, usuario_actual.username)
+        # 1. Preparar la ruta de carpetas física
+        # Estructura: /foundry_assets/NombreCampana/Username/
+        ruta_carpeta = os.path.join(FOUNDRY_DATA_PATH, campana_nombre, username)
+        
         if not os.path.exists(ruta_carpeta):
             os.makedirs(ruta_carpeta)
 
-        # 2. Convertir Base64 de vuelta a archivo físico
-        nombre_archivo = f"{nombre_npc}_{int(datetime.now().timestamp())}.png"
+        # 2. Convertir Base64 de vuelta a archivo físico (.png)
+        timestamp = int(datetime.now().timestamp())
+        nombre_archivo = f"{nombre_npc}_{timestamp}.png"
         ruta_completa = os.path.join(ruta_carpeta, nombre_archivo)
         
+        # El path relativo es el que guardamos en la DB para construir la URL después
+        # Resultado: "NombreCampana/Username/nombre_archivo.png"
+        ruta_relativa = f"{campana_nombre}/{username}/{nombre_archivo}"
+        
+        # Procesar base64 (quitamos el encabezado si viene del frontend como "data:image/png;base64,")
+        if "," in image_b64:
+            image_b64 = image_b64.split(",")[1]
+            
         img_data = base64.b64decode(image_b64)
+        
         with open(ruta_completa, 'wb') as f:
             f.write(img_data)
-            ruta_relativa = os.path.join(campana_nombre, usuario_actual.username, nombre_archivo)
         
-        # 3. Registrar en la Base de Datos
-        nuevo_asset = Asset(
-            usuario_id=usuario_actual.id,
-            tipo='Retrato',
-            file_path=ruta_relativa,
-            prompt_original=datos.get('prompt_usado', ''),
-            estado_aprobacion='Aprobado'
-        )
-        db.session.add(nuevo_asset)
-        db.session.commit()
+        # 3. Registrar en MongoDB
+        nuevo_asset = {
+            "usuario_id": usuario_actual['_id'], # Usamos el ObjectId de Mongo
+            "tipo": 'Retrato',
+            "file_path": ruta_relativa,
+            "prompt_original": datos.get('prompt_usado', ''),
+            "estado_aprobacion": 'Aprobado',
+            "fecha_creacion": datetime.now() # Opcional: útil en MongoDB
+        }
+        
+        # Insertamos en la colección 'assets'
+        mongo.db.assets.insert_one(nuevo_asset)
 
         return jsonify({
             "status": "success",
-            "mensaje": f"Imagen guardada en: imports/{campana_nombre}/{usuario_actual.username}/"
+            "mensaje": f"Imagen guardada exitosamente en la carpeta de {campana_nombre}",
+            "file_path": ruta_relativa
         }), 201
+
     except Exception as e:
-        return jsonify({"error": "Error al guardar archivo", "detalle": str(e)}), 500
+        print(f"Error al guardar imagen: {e}")
+        return jsonify({"error": "Error al procesar el archivo", "detalle": str(e)}), 500
     
 @app.route('/foundry_assets/<path:filename>')
 def servir_assets_foundry(filename):
     # filename recibirá algo como "Campaña_1/Arturo/imagen.png"
     # y lo buscará dentro de tu FOUNDRY_DATA_PATH
     return send_from_directory(FOUNDRY_DATA_PATH, filename)
+
 
 
 @app.route('/api/campanas/unirse', methods=['POST'])
@@ -612,45 +541,36 @@ def unirse_campana(usuario_actual):
     codigo = datos.get('codigo')
 
     if not codigo:
-        return jsonify({"error": "Debes proporcionar un código de invitación"}), 400
+        return jsonify({"error": "Falta el código de invitación"}), 400
 
-    # 1. Buscar la campaña por el código (en mayúsculas por si acaso)
-    campana = Campana.query.filter_by(codigo_invitacion=codigo.upper()).first()
+    # 1. Buscamos la campaña en MongoDB por su código
+    campana = mongo.db.campanas.find_one({"codigo_invitacion": codigo.upper()})
 
     if not campana:
-        return jsonify({"error": "Código de invitación inválido o campaña no encontrada"}), 404
+        return jsonify({"error": "Código inválido o campaña inexistente"}), 404
 
-    # 2. Verificar si el usuario ya es parte de la campaña
-    existente = UsuarioCampana.query.filter_by(
-        usuario_id=usuario_actual.id, 
-        campana_id=campana.id
-    ).first()
+    # 2. Verificamos si el usuario ya está dentro (para no duplicarlo)
+    # Comparamos el ID del usuario actual con los IDs en la lista 'jugadores'
+    if usuario_actual['_id'] in campana.get('jugadores', []):
+        return jsonify({"error": "Ya eres parte de esta gesta"}), 400
+        
+    # 3. Verificamos que el DM no intente unirse a su propia campaña como jugador
+    if campana['dm_id'] == usuario_actual['_id']:
+        return jsonify({"error": "Eres el DM de esta campaña, no puedes unirte como jugador"}), 400
 
-    if existente:
-        return jsonify({"error": "Ya formas parte de esta campaña"}), 400
-
-    # 3. Crear la vinculación como 'Jugador'
-    nueva_vinculacion = UsuarioCampana(
-        usuario_id=usuario_actual.id,
-        campana_id=campana.id,
-        rol='Jugador'
-    )
-
+    # 4. ¡LA MAGIA DE MONGO! 
+    # Usamos '$push' para agregar el ID del usuario al array de jugadores
     try:
-        db.session.add(nueva_vinculacion)
-        db.session.commit()
+        mongo.db.campanas.update_one(
+            {"_id": campana['_id']},
+            {"$push": {"jugadores": usuario_actual['_id']}}
+        )
         return jsonify({
             "status": "success",
-            "mensaje": f"Te has unido a '{campana.nombre}' como Jugador",
-            "campana": {
-                "id": campana.id,
-                "nombre": campana.nombre,
-                "rol": "Jugador"
-            }
-        }), 201
+            "mensaje": f"Te has unido a {campana['nombre']} con éxito."
+        }), 200
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": "Error al unirse", "detalle": str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True,host='0.0.0.0', port=5000)
