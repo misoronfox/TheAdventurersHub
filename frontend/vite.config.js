@@ -9,6 +9,9 @@ export default defineConfig({
     tailwindcss(), // <--- Lo agregamos a la lista de plugins
   ],
   server: {
+    hmr: {
+      host: 'adventurers-hub.duckdns.org',
+    },
     host: '0.0.0.0', // Esto le dice que escuche en toda la red
     port: 5173
   }

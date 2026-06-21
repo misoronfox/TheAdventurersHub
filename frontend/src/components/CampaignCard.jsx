@@ -1,8 +1,9 @@
 import { Users, Crown, Hash } from 'lucide-react';
 
-export default function CampaignCard({ campaign }) {
+export default function CampaignCard({ campaign, onClick}) {
   return (
-    <div className="bg-gray-800 border-2 border-fantasy-wood p-5 rounded-lg shadow-lg hover:border-fantasy-gold transition-all cursor-pointer group">
+    <div onClick={onClick} 
+    className="bg-gray-800 border-2 border-fantasy-wood p-5 rounded-lg shadow-lg hover:border-fantasy-gold transition-all cursor-pointer group">
       <div className="flex justify-between items-start mb-4">
         <h3 className="text-xl font-bold text-fantasy-gold group-hover:text-yellow-400">
           {campaign.nombre}

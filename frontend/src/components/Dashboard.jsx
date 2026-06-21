@@ -4,12 +4,12 @@ import { useAuthStore } from '../store/authStore';
 import CampaignCard from './CampaignCard';
 import CreateCampaignModal from './CreateCampaignModal';
 import { PlusCircle, RefreshCw, Dice5, ExternalLink, DoorOpen } from 'lucide-react'; // Añadidos iconos
-import {api} from '../api';
+import {api, ipFoundry} from '../api';
 import JoinCampaignModal from './JoinCampaignModal';
 
 
 
-export default function Dashboard() {
+export default function Dashboard({onSelectCampaign}) {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -36,7 +36,7 @@ export default function Dashboard() {
 
   // Función para abrir Foundry en una pestaña nueva
   const abrirFoundry = () => {
-    window.open('http://201.188.5.134:30000', '_blank');
+    window.open(ipFoundry, '_blank');
   };
 
   return (
@@ -98,7 +98,7 @@ export default function Dashboard() {
       ) : campaigns.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {campaigns.map(c => (
-            <CampaignCard key={c.id} campaign={c} />
+            <CampaignCard key={c.id} campaign={c} onClick={() => onSelectCampaign(c.id)} />
           ))}
         </div>
       ) : (

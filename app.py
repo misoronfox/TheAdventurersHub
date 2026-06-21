@@ -1,6 +1,6 @@
 import os
 import base64
-
+from groq import Groq
 import uuid
 import jwt
 import json
@@ -22,7 +22,7 @@ CORS(app)
 load_dotenv()
 
 
-BASE_URL = "http://201.188.5.134:5000" 
+BASE_URL = os.getenv('BASE_URL')
 app.config["MONGO_URI"] = "mongodb://localhost:27017/adventurers_hub"
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
@@ -162,63 +162,61 @@ def obtener_campanas(usuario_actual):
 @app.route('/api/ia/npc-rapido', methods=['POST'])
 @token_required
 def generar_npc(usuario_actual):
-    print("--- 🤖 INICIANDO GENERACIÓN DE NPC (MODO SEGURO) ---")
+    print("\n--- ⚡ GENERANDO NPC CON GROQ (LLAMA 3.1) ---")
     datos = request.get_json()
     idea = datos.get('idea', 'Un NPC de taberna')
     
-    # 1. Aseguramos que la API KEY esté cargada
-    api_key = os.getenv('GOOGLE_API_KEY')
+    api_key = os.getenv('GROQ_API_KEY')
     if not api_key:
-        return jsonify({"error": "No se encontró la GOOGLE_API_KEY en el .env"}), 500
+        return jsonify({"error": "No hay API KEY en el .env"}), 500
 
-    # 2. El Prompt (Lo mantenemos simple para evitar errores)
-    prompt = f"Genera un NPC de D&D 5e basado en: {idea}. Responde SOLO con un JSON con campos: nombre, raza, clase, personalidad, gancho."
+    try:
+        client_groq = Groq(api_key=api_key)
 
-    # 3. Lista de modelos a probar (en orden de probabilidad de éxito)
-    modelos_a_probar = ['gemini-1.5-flash', 'gemini-1.5-flash-latest', 'gemini-flash-latest']
+        # 1. CAMBIAMOS EL MODELO A 'llama-3.1-8b-instant'
+        # Es la versión actual y recomendada por Groq
+        chat_completion = client_groq.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": """Eres un generador de NPCs para D&D 5e. 
+                    Responde ÚNICAMENTE con un JSON plano. 
+                    IMPORTANTE: Todos los valores deben ser TEXTO (strings), NO objetos ni listas.
+                    Usa estas llaves exactas:
+                    {
+                        "nombre": "Nombre",
+                        "raza": "Raza",
+                        "clase": "Clase",
+                        "personalidad": "Descripción en una sola frase",
+                        "gancho": "Misión o secreto"
+                    }"""
+                },
+                {
+                    "role": "user",
+                    "content": f"Genera un NPC basado en: {idea}"
+                }
+            ],
+            model="llama-3.1-8b-instant", # <--- MODELO ACTUALIZADO
+            response_format={"type": "json_object"} # <--- Mantiene el JSON perfecto
+        )
+
+        # 2. Obtenemos el texto (JSON) de la respuesta
+        resultado_texto = chat_completion.choices[0].message.content
+        
+        # 3. ¡IMPORTANTE PARA EVITAR EL ERROR DE REACT!
+        # Convertimos el string a un objeto real de Python para que Flask 
+        # lo envíe como un objeto JSON limpio a React.
+        resultado_json = json.loads(resultado_texto)
+        
+        return jsonify({
+            "status": "success",
+            "resultado": resultado_json # <--- Enviamos el objeto, NO el string
+        }), 200
+
+    except Exception as e:
+        print(f"❌ ERROR GROQ: {str(e)}")
+        return jsonify({"error": "Fallo en la IA", "detalle": str(e)}), 500
     
-    last_error = ""
-
-    from google import genai
-    client_ia = genai.Client(api_key=api_key)
-
-    for model_name in modelos_a_probar:
-        try:
-            print(f"Probando modelo: {model_name}...")
-            response = client_ia.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            
-            # Si llegamos aquí, ¡funcionó!
-            texto = response.text.replace('```json', '').replace('```', '').strip()
-            print(f"✅ Éxito con el modelo: {model_name}")
-            
-            return jsonify({
-                "status": "success",
-                "modelo_usado": model_name,
-                "resultado": texto
-            })
-
-        except Exception as e:
-            last_error = str(e)
-            print(f"❌ Falló {model_name}: {last_error[:100]}...")
-            
-            # Si el error es de CUOTA (429), no seguimos probando modelos, hay que esperar.
-            if "429" in last_error or "RESOURCE_EXHAUSTED" in last_error:
-                return jsonify({
-                    "error": "Límite de la IA alcanzado",
-                    "detalle": "Has hecho muchas peticiones muy rápido. Espera 60 segundos y vuelve a intentar."
-                }), 429
-            
-            # Si es otro error, el bucle intentará con el siguiente modelo de la lista
-            continue
-
-    # Si terminamos el bucle y ninguno funcionó:
-    return jsonify({
-        "error": "No se pudo conectar con ningún modelo de IA disponible",
-        "detalle": last_error
-    }), 500
 
 @app.route('/api/ia/diagnostico', methods=['GET'])
 def listar_modelos():
@@ -295,10 +293,7 @@ def obtener_assets(usuario_actual):
         # 1. En MongoDB buscamos en la colección 'assets' usando el _id del usuario
         # Recordatorio: usuario_actual ahora es un diccionario
         cursor_assets = mongo.db.assets.find({"usuario_id": usuario_actual['_id']})
-        
-        # Define tu IP actual o usa una variable de entorno
-        BASE_URL = "http://201.188.5.134:5000" 
-        
+
         lista_assets = []
         
         for a in cursor_assets:
@@ -400,132 +395,131 @@ def generar_imagen_preview(usuario_actual):
     datos = request.get_json()
     npc_info = datos.get('prompt', 'A fantasy character')
     
-    print(f"--- 🎨 GENERANDO RETRATO (MONGO VERSION) ---")
+    print(f"--- 🎨 GENERANDO RETRATO (GROQ + FLUX + MONGO) ---")
     
-    try:
-        # 1. Gemini genera el prompt artístico (Usando el cliente ya configurado)
-        # Usamos gemini-1.5-flash que es el que nos funcionó por cuota
-        prompt_request = f"""
-        You are a professional Concept Artist. 
-        Convert this description into a high-end fantasy prompt for FLUX: "{npc_info}".
-        Describe lighting, textures, and cinematic composition.
-        Output ONLY the resulting English prompt.
-        """
-        
-        # 'client' es el que definimos arriba en app.py con google.genai
-        res_prompt = client.models.generate_content(
-            model='gemini-1.5-flash',
-            contents=prompt_request
-        )
-        art_prompt = res_prompt.text.strip()
+    # 1. PREPARAR LAS LLAVES
+    GROQ_KEY = os.getenv('GROQ_API_KEY')
+    HF_KEY = os.getenv('HUGGINGFACE_API_KEY')
+    
+    if not GROQ_KEY or not HF_KEY:
+        return jsonify({"error": "Faltan configurar las API Keys en el servidor"}), 500
 
-        # 2. Configuración Hugging Face
-        API_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
-        headers = {"Authorization": f"Bearer {os.getenv('HUGGINGFACE_API_KEY')}"}
+    art_prompt = npc_info # Valor por defecto
+
+    try:
+        # --- PASO 1: OPTIMIZAR PROMPT CON GROQ (LLAMA 3.1) ---
+        print("1. Optimizando prompt con Llama 3.1 (Groq)...")
+        try:
+            client_groq = Groq(api_key=GROQ_KEY)
+            chat_completion = client_groq.chat.completions.create(
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a professional fantasy concept artist. Convert the user idea into a high-end image prompt for FLUX. Describe lighting, sharp focus, cinematic style and 8k resolution. Output ONLY the resulting English prompt."
+                    },
+                    {
+                        "role": "user", 
+                        "content": f"Create an art prompt for: {npc_info}"
+                    }
+                ],
+                model="llama-3.1-8b-instant",
+            )
+            art_prompt = chat_completion.choices[0].message.content.strip()
+            print(f"   ✅ Prompt optimizado: {art_prompt[:50]}...")
+        except Exception as e:
+            print(f"   ⚠️ Falló Groq: {e}. Usando original.")
+
+        # --- PASO 2: GENERAR IMAGEN CON FLUX (HUGGING FACE) ---
+        print("2. Enviando a FLUX en Hugging Face...")
+        IMAGE_MODEL_URL = "https://router.huggingface.co/hf-inference/models/black-forest-labs/FLUX.1-schnell"
+        headers = {"Authorization": f"Bearer {HF_KEY}"}
         
         image_base64 = None
         
-        # Intentos por si el modelo está despertando
+        # Intentos por si el modelo está cargando
         for intento in range(3):
-            response = requests.post(API_URL, headers=headers, json={"inputs": art_prompt}, timeout=60)
+            img_res = requests.post(IMAGE_MODEL_URL, headers=headers, json={"inputs": art_prompt}, timeout=60)
             
-            if response.status_code == 200:
-                image_base64 = base64.b64encode(response.content).decode('utf-8')
-                print("✅ Imagen generada con éxito")
+            if img_res.status_code == 200:
+                image_base64 = base64.b64encode(img_res.content).decode('utf-8')
+                print("✅ Imagen generada con éxito.")
                 break
-            elif response.status_code in [503, 429]:
-                print(f"Modelo ocupado (Error {response.status_code}), reintentando {intento+1}...")
-                time.sleep(8)
+            elif img_res.status_code in [503, 429]:
+                print(f"   Modelo ocupado ({img_res.status_code}), reintentando en 10s...")
+                time.sleep(10)
             else:
-                print(f"❌ Error HF ({response.status_code}): {response.text}")
+                print(f"❌ Error crítico FLUX ({img_res.status_code}): {img_res.text}")
                 break
 
         if not image_base64:
-            return jsonify({"error": "No se pudo obtener la imagen de Hugging Face"}), 504
+            return jsonify({"error": "FLUX no respondió a tiempo", "detalle": "El modelo de imagen está saturado."}), 504
 
-        # 3. OPCIONAL: Guardar un log de la generación en MongoDB
-        # Esto es útil para saber cuántas imágenes genera cada usuario
-        log_generacion = {
+        # --- PASO 3: GUARDAR LOG EN MONGODB ---
+        mongo.db.logs_generacion.insert_one({
             "usuario_id": usuario_actual['_id'],
             "prompt_original": npc_info,
             "art_prompt": art_prompt,
             "fecha": datetime.now(timezone.utc),
-            "tipo_ia": "FLUX.1-schnell"
-        }
-        mongo.db.logs_generacion.insert_one(log_generacion)
+            "engine_texto": "Groq-Llama-3.1",
+            "engine_imagen": "HF-Flux-Schnell"
+        })
 
         return jsonify({
             "status": "success",
             "image_b64": image_base64,
-            "art_prompt": art_prompt # Lo devolvemos por si quieres mostrarlo en el front
+            "art_prompt": art_prompt
         }), 200
 
     except Exception as e:
-        print(f"❌ ERROR IA: {str(e)}")
-        return jsonify({"error": "Fallo en el proceso artístico", "detalle": str(e)}), 500
+        print(f"❌ ERROR GENERAL: {str(e)}")
+        return jsonify({"error": "Error interno en el proceso de IA", "detalle": str(e)}), 500
+
 @app.route('/api/assets/guardar-imagen', methods=['POST'])
 @token_required
 def confirmar_guardado_imagen(usuario_actual):
     datos = request.get_json()
     image_b64 = datos.get('image_b64')
-    
-    # Sanitizamos los nombres para evitar problemas de rutas
     nombre_npc = datos.get('nombre_npc', 'personaje').replace(" ", "_")
     campana_nombre = datos.get('campana_nombre', 'galeria_personal').replace(" ", "_")
-    username = usuario_actual['username']
-
-    if not image_b64:
-        return jsonify({"error": "Falta la imagen en formato base64"}), 400
+    # --- NUEVO: Recibimos el ID de la campaña ---
+    campana_id = datos.get('campana_id') 
 
     try:
-        # 1. Preparar la ruta de carpetas física
-        # Estructura: /foundry_assets/NombreCampana/Username/
-        ruta_carpeta = os.path.join(FOUNDRY_DATA_PATH, campana_nombre, username)
-        
+        # 1. Preparar la ruta de carpetas (esto ya funcionaba)
+        ruta_carpeta = os.path.join(FOUNDRY_DATA_PATH, campana_nombre, usuario_actual['username'])
         if not os.path.exists(ruta_carpeta):
             os.makedirs(ruta_carpeta)
 
-        # 2. Convertir Base64 de vuelta a archivo físico (.png)
-        timestamp = int(datetime.now().timestamp())
-        nombre_archivo = f"{nombre_npc}_{timestamp}.png"
+        # 2. Convertir Base64 a archivo físico
+        nombre_archivo = f"{nombre_npc}_{int(datetime.now().timestamp())}.png"
         ruta_completa = os.path.join(ruta_carpeta, nombre_archivo)
         
-        # El path relativo es el que guardamos en la DB para construir la URL después
-        # Resultado: "NombreCampana/Username/nombre_archivo.png"
-        ruta_relativa = f"{campana_nombre}/{username}/{nombre_archivo}"
-        
-        # Procesar base64 (quitamos el encabezado si viene del frontend como "data:image/png;base64,")
-        if "," in image_b64:
-            image_b64 = image_b64.split(",")[1]
-            
+        if "," in image_b64: image_b64 = image_b64.split(",")[1]
         img_data = base64.b64decode(image_b64)
         
         with open(ruta_completa, 'wb') as f:
             f.write(img_data)
         
-        # 3. Registrar en MongoDB
+        ruta_relativa = f"{campana_nombre}/{usuario_actual['username']}/{nombre_archivo}"
+        
+        # 3. Registrar en MongoDB con vinculación a la campaña
         nuevo_asset = {
-            "usuario_id": usuario_actual['_id'], # Usamos el ObjectId de Mongo
+            "usuario_id": usuario_actual['_id'],
             "tipo": 'Retrato',
             "file_path": ruta_relativa,
+            "nombre": nombre_npc.replace("_", " "),
             "prompt_original": datos.get('prompt_usado', ''),
             "estado_aprobacion": 'Aprobado',
-            "fecha_creacion": datetime.now() # Opcional: útil en MongoDB
+            "fecha_creacion": datetime.now(),
+            # --- VINCULACIÓN MÁGICA AQUÍ ---
+            "campana_id": ObjectId(campana_id) if campana_id else None
         }
         
-        # Insertamos en la colección 'assets'
         mongo.db.assets.insert_one(nuevo_asset)
 
-        return jsonify({
-            "status": "success",
-            "mensaje": f"Imagen guardada exitosamente en la carpeta de {campana_nombre}",
-            "file_path": ruta_relativa
-        }), 201
-
+        return jsonify({"status": "success", "mensaje": "Imagen sincronizada con la campaña"}), 201
     except Exception as e:
-        print(f"Error al guardar imagen: {e}")
-        return jsonify({"error": "Error al procesar el archivo", "detalle": str(e)}), 500
-    
+        return jsonify({"error": str(e)}), 500
 @app.route('/foundry_assets/<path:filename>')
 def servir_assets_foundry(filename):
     # filename recibirá algo como "Campaña_1/Arturo/imagen.png"
@@ -568,6 +562,64 @@ def unirse_campana(usuario_actual):
         return jsonify({
             "status": "success",
             "mensaje": f"Te has unido a {campana['nombre']} con éxito."
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
+    
+    
+@app.route('/api/campanas/<campana_id>', methods=['GET'])
+@token_required
+def obtener_detalle_campana(usuario_actual, campana_id):
+    try:
+        # 1. Buscar la campaña
+        campana = mongo.db.campanas.find_one({"_id": ObjectId(campana_id)})
+        if not campana:
+            return jsonify({"error": "Campaña no encontrada"}), 404
+
+        # 2. Seguridad: Verificar que el usuario pertenece a la campaña
+        es_dm = campana['dm_id'] == usuario_actual['_id']
+        es_jugador = usuario_actual['_id'] in campana.get('jugadores', [])
+
+        if not es_dm and not es_jugador:
+            return jsonify({"error": "No tienes permiso para ver esta campaña"}), 403
+
+        # 3. Obtener nombres de los jugadores (NoSQL Lookup)
+        ids_jugadores = campana.get('jugadores', [])
+        lista_jugadores = []
+        if ids_jugadores:
+            usuarios_db = mongo.db.usuarios.find({"_id": {"$in": ids_jugadores}}, {"username": 1})
+            lista_jugadores = [{"id": str(u['_id']), "username": u['username']} for u in usuarios_db]
+
+        # 4. Obtener nombre del DM
+        dm_db = mongo.db.usuarios.find_one({"_id": campana['dm_id']}, {"username": 1})
+
+        # 5. Obtener Assets vinculados a esta campaña
+        # (Filtramos por campana_id en la colección de assets)
+        assets_cursor = mongo.db.assets.find({"campana_id": ObjectId(campana_id)})
+        lista_assets = []
+        for a in assets_cursor:
+            # Reutilizamos la lógica de limpieza de nombres que hicimos antes
+            nombre_limpio = a.get('nombre', 'Asset sin nombre')
+            lista_assets.append({
+                "id": str(a['_id']),
+                "tipo": a.get('tipo'),
+                "nombre": nombre_limpio,
+                "url": f"{BASE_URL}/foundry_assets/{a['file_path']}" if a.get('file_path') else None
+            })
+
+        return jsonify({
+            "status": "success",
+            "campana": {
+                "id": str(campana['_id']),
+                "nombre": campana['nombre'],
+                "descripcion": campana.get('description', ''),
+                "codigo_invitacion": campana['codigo_invitacion'] if es_dm else "Oculto",
+                "dm_username": dm_db['username'] if dm_db else "Desconocido",
+                "jugadores": lista_jugadores,
+                "assets": lista_assets,
+                "soy_el_dm": es_dm
+            }
         }), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500

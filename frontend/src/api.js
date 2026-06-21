@@ -1,8 +1,9 @@
 import axios from 'axios';
-export const ipPublica = '201.188.5.134:5000'
+export const ipPublica = 'https://adventurers-hub.duckdns.org'
 export const api = axios.create({
-  baseURL: 'http://201.188.5.134:5000/api'
+  baseURL: 'https://adventurers-hub.duckdns.org/api'
 });
+export const ipFoundry = '201.188.22.11:30000'
 
 
 
