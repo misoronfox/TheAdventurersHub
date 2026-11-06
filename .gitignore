@@ -1,6 +1,27 @@
+# Variables de entorno
 .env
-node_modules/
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# Entornos virtuales de Python
+.venv/
 venv/
+env/
 __pycache__/
+*.py[cod]
+
+# Dependencias y builds de Frontend
+node_modules/
 dist/
 build/
+
+# Bases de datos locales / residuales
+*.db
+*.sqlite3
+*.sqbpro
+
+# Herramientas de IA y editores
+.aider*

@@ -22,11 +22,11 @@ CORS(app)
 load_dotenv()
 
 
-BASE_URL = os.getenv('BASE_URL')
-app.config["MONGO_URI"] = "mongodb://localhost:27017/adventurers_hub"
+BASE_URL = os.getenv('BASE_URL', 'https://adventurers-hub.duckdns.org')
+app.config["MONGO_URI"] = os.getenv("MONGO_URI", "mongodb://localhost:27017/adventurers_hub")
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
 
-FOUNDRY_DATA_PATH = "/home/arturo/foundrydata/Data/imports"
+FOUNDRY_DATA_PATH = os.getenv("FOUNDRY_DATA_PATH", "/home/arturo/foundrydata/Data/imports")
 
 mongo = PyMongo(app)
 
