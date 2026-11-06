@@ -96,10 +96,17 @@ npm run dev
 
 ---
 
-## 🔀 Flujo de Trabajo con Pull Requests (GitHub Flow)
+## 🔀 Flujo de Trabajo con Ramas y Pull Requests (`develop` / `main`)
 
-1. **Nunca hacer push directo a `main`**. Todo cambio entra mediante Pull Request.
-2. **Crear una rama descriptiva desde `main`:**
+1. **Ramas principales:**
+   - `main`: Código estable de producción.
+   - `develop`: Rama base de desarrollo e integración. **Todos los cambios nuevos nacen desde `develop`**.
+2. **Crear una rama descriptiva siempre a partir de `develop`:**
+   ```bash
+   git checkout develop
+   git pull origin develop
+   git checkout -b feat/nombre-funcionalidad
+   ```
    - `feat/nombre-funcionalidad` (nuevas características)
    - `fix/nombre-bug` (corrección de errores)
    - `docs/nombre-cambio` (documentación o contexto)
@@ -107,4 +114,4 @@ npm run dev
 3. **Verificación antes de abrir PR:**
    - Asegurar que no se suban archivos `.env`, `.venv/` ni bases de datos locales.
    - Ejecutar `npm run lint` y `npm run build` dentro de `frontend/`.
-4. **Abrir Pull Request en GitHub** completando la plantilla automática y esperar a que pasen las validaciones de GitHub Actions (`CI`).
+4. **Abrir Pull Request en GitHub hacia `develop`** completando la plantilla automática y esperar a que pasen las validaciones de GitHub Actions (`CI`).

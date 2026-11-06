@@ -5,7 +5,7 @@ Este archivo provee contexto técnico y reglas de arquitectura para asistentes d
 ## 1. Visión General del Proyecto
 - **Propósito:** Sistema de gestión de campañas de rol (D&D 5e) con generación de NPCs/retratos por IA y sincronización de archivos con Foundry VTT.
 - **Repositorio:** `https://github.com/misoronfox/TheAdventurersHub`
-- **Flujo de trabajo:** Basado en **Pull Requests** hacia la rama `main`.
+- **Flujo de trabajo:** Basado en **Gitflow / Pull Requests** usando `develop` como rama principal de integración (todas las ramas nacen de `develop` y los PRs apuntan a `develop`; `main` queda reservada para versiones estables/producción).
 
 ## 2. Stack y Estructura de Archivos
 - `app.py`: Monolito Backend en Flask. Contiene configuración de MongoDB (`PyMongo`), middleware JWT (`@token_required`), rutas REST bajo `/api/...`, integración con Groq (`llama-3.1-8b-instant`), Hugging Face (`FLUX.1-schnell`) y Google GenAI.
@@ -28,4 +28,5 @@ Este archivo provee contexto técnico y reglas de arquitectura para asistentes d
    - Éxito: `jsonify({"status": "success", ...}), 200/201`
    - Error: `jsonify({"error": "Mensaje descriptivo", "detalle": str(e)}), 4xx/5xx`
 5. **Flujo Git / Pull Requests:**
-   - Trabajar siempre en ramas (`feat/...`, `fix/...`, `chore/...`, `docs/...`) y validar que `frontend` compile (`npm run build`) y pase el linter (`npm run lint`) antes de proponer un PR.
+   - La rama base de desarrollo es `develop`. Todas las ramas nuevas (`feat/...`, `fix/...`, `chore/...`, `docs/...`) deben nacer desde `develop` y los Pull Requests deben abrirse hacia `develop`.
+   - Validar que `frontend` compile (`npm run build`) y pase el linter (`npm run lint`) antes de proponer un PR.
