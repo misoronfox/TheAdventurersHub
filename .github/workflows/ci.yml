@@ -6,7 +6,28 @@ on:
   push:
     branches: [ "develop", "main" ]
 
+permissions:
+  contents: read
+
 jobs:
+  commit-conventions:
+    name: Conventional Commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validar título y commits
+        run: node .github/scripts/check-conventional-commits.mjs
+
   backend-check:
     name: Backend (Python / Flask)
     runs-on: ubuntu-latest
@@ -48,6 +69,9 @@ jobs:
 
       - name: Instalar dependencias
         run: npm ci
+
+      - name: Revisar estilo
+        run: npm run lint
 
       - name: Compilar aplicación (Build)
         run: npm run build

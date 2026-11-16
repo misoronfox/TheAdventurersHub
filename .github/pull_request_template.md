@@ -1,25 +1,28 @@
-## 📜 Descripción del Cambio
-<!-- Explica brevemente qué hace este Pull Request y por qué es necesario -->
+## Objetivo
 
-## 🛠️ Tipo de Cambio
-- [ ] ✨ Nueva funcionalidad (`feat`)
-- [ ] 🐛 Corrección de error (`fix`)
-- [ ] ♻️ Refactorización (`refactor`)
-- [ ] 📝 Documentación / Configuración (`docs` / `chore`)
+Describe el problema o necesidad y el resultado que persigue este cambio.
 
-## 🧩 Áreas Afectadas
-- [ ] **Backend** (`app.py` / rutas Flask / MongoDB)
-- [ ] **Frontend** (React / Tailwind / Zustand)
-- [ ] **IA** (Groq / Hugging Face FLUX / Gemini)
-- [ ] **Foundry VTT** (Sincronización de archivos)
+## Alcance
 
-## 🧪 ¿Cómo se ha probado?
-<!-- Describe los pasos para verificar estos cambios localmente -->
-1. 
-2. 
+- Áreas o módulos afectados:
+- Fuera de alcance:
 
-## ✅ Checklist antes de hacer Merge
-- [ ] Mi código sigue las convenciones del proyecto (ver `AGENTS.md`).
-- [ ] No se incluyen credenciales, archivos `.env` ni carpetas `.venv/` o `node_modules/`.
-- [ ] Si añadí nuevas variables de entorno o librerías, actualicé `.env.example` / `requirements.txt` / `package.json`.
-- [ ] El frontend compila correctamente (`npm run build`).
+## Validación
+
+- [ ] `python -m py_compile app.py` (si afecta al backend)
+- [ ] `npm run lint` (si afecta al frontend)
+- [ ] `npm run build` (si afecta al frontend)
+- [ ] Revisé permisos, validación de entradas y exposición de datos (si afecta API, autenticación o archivos)
+
+Comandos ejecutados y resultados:
+
+## Riesgos y seguimiento
+
+Describe riesgos, migraciones o tareas posteriores. Escribe `Ninguno` cuando no aplique.
+
+## Revisión final
+
+- [ ] Título del PR y todos los commits siguen Conventional Commits.
+- [ ] El cambio se limita al objetivo descrito y no incluye credenciales, datos privados ni archivos locales.
+- [ ] Actualicé ejemplos de configuración y documentación cuando corresponde.
+- [ ] No agregué marcas de agua, firmas, metadata de herramientas ni artefactos generados.

@@ -1,32 +1,36 @@
-# Guía de Contexto para Agentes de IA (`AGENTS.md`)
+# Guía de desarrollo
 
-Este archivo provee contexto técnico y reglas de arquitectura para asistentes de IA que trabajen en **The Adventurer's Hub**.
+Estas reglas aplican a toda contribución automatizada o manual en este repositorio. Mantén los cambios dentro del alcance solicitado y conserva el idioma español de las rutas, campos y respuestas existentes de la API.
 
-## 1. Visión General del Proyecto
-- **Propósito:** Sistema de gestión de campañas de rol (D&D 5e) con generación de NPCs/retratos por IA y sincronización de archivos con Foundry VTT.
-- **Repositorio:** `https://github.com/misoronfox/TheAdventurersHub`
-- **Flujo de trabajo:** Basado en **Gitflow / Pull Requests** usando `develop` como rama principal de integración (todas las ramas nacen de `develop` y los PRs apuntan a `develop`; `main` queda reservada para versiones estables/producción).
+## Flujo de trabajo
 
-## 2. Stack y Estructura de Archivos
-- `app.py`: Monolito Backend en Flask. Contiene configuración de MongoDB (`PyMongo`), middleware JWT (`@token_required`), rutas REST bajo `/api/...`, integración con Groq (`llama-3.1-8b-instant`), Hugging Face (`FLUX.1-schnell`) y Google GenAI.
-- `requirements.txt`: Dependencias de Python del backend.
-- `frontend/`: SPA en React 19 + Vite 7 + Tailwind CSS v4 + Zustand.
-  - `frontend/src/api.js`: Instancia de Axios (`api`) e IPs/URLs hacia el backend y Foundry VTT.
-  - `frontend/src/store/authStore.js`: Estado de autenticación con Zustand persistido en `localStorage` (`token`).
-  - `frontend/src/components/`: Componentes principales (`Dashboard.jsx`, `CampaignDetails.jsx`, `IALab.jsx`, `Gallery.jsx`, `LoginForm.jsx`, `RegisterForm.jsx`, modales y tarjetas).
+1. Revisa `git status`, la rama actual y las instrucciones aplicables antes de editar.
+2. Parte de la última versión de `develop`. Usa ramas `feat/`, `fix/`, `refactor/`, `docs/`, `build/`, `ci/` o `chore/` con nombres cortos y descriptivos.
+3. Divide el trabajo en unidades revisables. Cada unidad debe tener objetivo, archivos o módulo bajo responsabilidad, criterios de aceptación y validaciones.
+4. Cuando haya trabajo paralelo, asigna módulos o archivos sin solapamiento. Usa worktrees aislados para cambios concurrentes; integra cada resultado con revisión y validaciones antes de continuar.
+5. No amplíes el alcance, no reviertas cambios ajenos y no incluyas archivos locales, secretos, datos de usuario, dependencias instaladas ni artefactos generados.
 
-## 3. Convenciones de Código y Reglas de Negocio
-1. **Idioma:**
-   - Nombres de colecciones, campos de MongoDB, rutas de la API (`/api/campanas`, `/api/registro`, `/api/ia/npc-rapido`) y mensajes de respuesta están en **español**.
-   - Mantener este estándar al crear nuevos endpoints o modelos.
-2. **Autenticación y Seguridad:**
-   - Todas las rutas privadas deben usar el decorador `@token_required` definido en `app.py`, el cual inyecta `usuario_actual` (documento de `mongo.db.usuarios`) como primer argumento de la función.
-   - Nunca exponer `SECRET_KEY`, `GROQ_API_KEY`, `HUGGINGFACE_API_KEY` ni `GOOGLE_API_KEY` en el código fuente.
-3. **Manejo de IDs en MongoDB:**
-   - Los `_id` y referencias (`usuario_id`, `dm_id`, `campana_id`, `jugadores`) se almacenan como `bson.objectid.ObjectId` en MongoDB y deben serializarse a `str` al devolver respuestas JSON a React.
-4. **Formato de Respuestas API:**
-   - Éxito: `jsonify({"status": "success", ...}), 200/201`
-   - Error: `jsonify({"error": "Mensaje descriptivo", "detalle": str(e)}), 4xx/5xx`
-5. **Flujo Git / Pull Requests:**
-   - La rama base de desarrollo es `develop`. Todas las ramas nuevas (`feat/...`, `fix/...`, `chore/...`, `docs/...`) deben nacer desde `develop` y los Pull Requests deben abrirse hacia `develop`.
-   - Validar que `frontend` compile (`npm run build`) y pase el linter (`npm run lint`) antes de proponer un PR.
+## Arquitectura y límites
+
+- Conserva el comportamiento existente salvo que el cambio solicite modificarlo.
+- El backend actual está concentrado en `app.py`. Para funcionalidad nueva, evita aumentar ese archivo: organiza por dominio en módulos de rutas, servicios y acceso a datos. Migra el código existente de forma incremental y con comprobaciones para cada dominio.
+- En el frontend, organiza nuevas funcionalidades dentro de `frontend/src/features/<dominio>/`; reserva `shared/` para código reutilizado por varios dominios.
+- Mantén integraciones externas detrás de módulos propios. No mezcles reglas de negocio con llamadas HTTP, acceso directo a MongoDB o detalles de proveedores.
+- Mantén los nombres existentes de colecciones, campos y endpoints en español, salvo una migración explícita.
+- Trata cada entrada externa como no confiable. No devuelvas trazas, secretos, rutas locales ni detalles internos de excepciones en respuestas de API.
+
+## Commits y pull requests
+
+- Cada commit y el título del pull request deben seguir Conventional Commits: `tipo(scope opcional): descripción`.
+- Tipos permitidos: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore` y `revert`. Para cambios incompatibles usa `!` antes de `:` y documenta `BREAKING CHANGE:` en el cuerpo.
+- Usa scopes cortos y estables, por ejemplo `auth`, `campaigns`, `assets`, `frontend`, `api` o `ci`.
+- Mantén cada commit enfocado. No combines una refactorización amplia con una funcionalidad ajena.
+- El PR apunta a `develop`, explica impacto y alcance, enumera las validaciones ejecutadas y deja los puntos no verificados claramente identificados.
+
+## Seguridad y calidad
+
+- Nunca incluyas credenciales, valores de `.env`, tokens de sesión, datos personales o contenido privado de campañas.
+- Si agregas configuración, actualiza `.env.example` con valores locales genéricos y sin secretos.
+- Ejecuta las comprobaciones relevantes: `python -m py_compile app.py`; en `frontend/`, `npm run lint` y `npm run build`.
+- No afirmes que una comprobación pasó si no se ejecutó. Si no puede ejecutarse, explica el bloqueo y su impacto.
+- Mantén documentación funcional y neutral; no agregues marcas de agua, firmas promocionales, metadata de herramientas ni atribuciones automáticas.
