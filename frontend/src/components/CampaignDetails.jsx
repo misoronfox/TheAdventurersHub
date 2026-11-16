@@ -15,7 +15,7 @@ export default function CampaignDetails({ campanaId, onBack }) {
           headers: { Authorization: `Bearer ${token}` }
         });
         setData(res.data.campana);
-      } catch (err) {
+      } catch {
         alert("Error al cargar la gesta.");
         onBack();
       } finally {

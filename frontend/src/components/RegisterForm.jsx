@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import axios from 'axios';
 import { User, Lock, ShieldAlert, UserPlus } from 'lucide-react';
 import {api} from '../api';
 

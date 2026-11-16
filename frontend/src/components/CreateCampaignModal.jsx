@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import axios from 'axios';
 import { useAuthStore } from '../store/authStore';
 import { X, ShieldCheck, Sword } from 'lucide-react';
 import {api} from '../api';

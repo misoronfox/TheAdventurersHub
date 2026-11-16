@@ -35,7 +35,7 @@ export default function Gallery() {
       // await api.delete(`/assets/${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setAssets(assets.filter(a => a.id !== id));
       alert("Registro borrado.");
-    } catch (err) { alert("No se pudo borrar el registro."); }
+    } catch { alert("No se pudo borrar el registro."); }
   };
 
   // Filtrado lógico
