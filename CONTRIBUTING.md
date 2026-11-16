@@ -1,11 +1,11 @@
-# Contributing
+# Contribuir
 
-Thanks for helping improve The Adventurer's Hub. The project currently uses \`develop\` as its integration branch; pull requests should target \`develop\`. \`main\` is reserved for stable releases.
+Gracias por ayudar a mejorar The Adventurer's Hub. La rama de integración actual es \`develop\`; los pull requests deben apuntar a esa rama. \`main\` queda reservada para versiones estables.
 
-## Local setup
+## Configuración local
 
-1. Install Python 3.12+, Node.js 20+, npm, and a local MongoDB instance.
-2. Create and activate a Python virtual environment, then install backend dependencies:
+1. Instala Python 3.12 o posterior, Node.js 20 o posterior, npm y MongoDB local.
+2. Crea y activa un entorno virtual de Python e instala las dependencias del backend:
 
    \`\`\`bash
    python -m venv .venv
@@ -14,21 +14,21 @@ Thanks for helping improve The Adventurer's Hub. The project currently uses \`de
    pip install -r requirements.txt
    \`\`\`
 
-3. Copy \`.env.example\` to \`.env\` and set a new, private \`SECRET_KEY\`. Add provider keys only when using those integrations.
-4. Install frontend dependencies and start the development server:
+3. Copia \`.env.example\` a \`.env\` y genera un valor privado y único para \`SECRET_KEY\`. Agrega claves de proveedores solo si usarás esas integraciones.
+4. Instala las dependencias del frontend e inicia el servidor de desarrollo:
 
    \`\`\`bash
    cd frontend
    npm ci
-   # Copy .env.example to .env if local URL overrides are needed.
+   # Copia .env.example a .env si necesitas cambiar las URL locales.
    npm run dev
    \`\`\`
 
-5. In a second terminal, start the backend with \`python app.py\`.
+5. En una segunda terminal, inicia el backend con \`python app.py\`.
 
-## Before opening a pull request
+## Antes de abrir un pull request
 
-Run the checks that apply to your change:
+Ejecuta las comprobaciones que correspondan a tu cambio:
 
 \`\`\`bash
 python -m py_compile app.py
@@ -37,11 +37,11 @@ npm run lint
 npm run build
 \`\`\`
 
-The repository does not yet have an automated test suite. Do not describe a check as passing unless it was actually run. Never commit \`.env\` files, credentials, local databases, generated assets, or personal server addresses.
+El repositorio todavía no tiene una suite automatizada. No indiques que una comprobación pasó si no la ejecutaste. Nunca subas archivos \`.env\`, credenciales, bases de datos locales, recursos generados ni direcciones personales de servidores.
 
 ## Pull requests
 
-- Create a focused branch from the latest \`develop\` (\`feat/\`, \`fix/\`, \`docs/\`, or \`chore/\`).
-- Explain the user-visible or operational impact and list the checks you ran.
-- Include screenshots for UI changes and update documentation when setup or behavior changes.
-- Keep licensing and attribution details with any third-party rules, images, or other content you add.
+- Crea una rama enfocada desde la última versión de \`develop\` (\`feat/\`, \`fix/\`, \`docs/\` o \`chore/\`).
+- Explica el impacto para usuarios u operación y enumera las comprobaciones ejecutadas.
+- Incluye capturas para cambios de interfaz y actualiza la documentación cuando cambien la configuración o el comportamiento.
+- Conserva la licencia y atribución de cualquier regla, imagen u otro contenido de terceros que agregues.
