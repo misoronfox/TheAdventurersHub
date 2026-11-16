@@ -1,13 +1,13 @@
-# Security policy
+# Política de seguridad
 
-The Adventurer's Hub is an early-stage project and is not ready for production use. Do not use real campaign data or production credentials with it.
+The Adventurer's Hub está en una etapa inicial y todavía no está listo para producción. No uses datos reales de campañas ni credenciales de producción.
 
-## Reporting a vulnerability
+## Reportar una vulnerabilidad
 
-Please report security issues privately through GitHub's **Report a vulnerability** option on the repository's Security tab. If private vulnerability reporting is unavailable, contact the repository owner through GitHub and do not open a public issue containing exploit details, personal data, or credentials.
+Reporta los problemas de seguridad de forma privada mediante la opción **Report a vulnerability** en la pestaña Security del repositorio. Si los reportes privados no están habilitados, contacta al propietario por GitHub y no publiques detalles de explotación, datos personales ni credenciales en un issue público.
 
-Include the affected component, impact, and safe reproduction steps. Redact tokens, API keys, database connection strings, and personal campaign content from logs and screenshots.
+Incluye el componente afectado, el impacto y pasos seguros para reproducir el problema. Oculta tokens, claves de API, cadenas de conexión a bases de datos y contenido privado de campañas en logs y capturas.
 
-## Credential handling
+## Manejo de credenciales
 
-Treat any credential committed to GitHub, pasted into an issue, or included in a shared transcript as compromised. Revoke or rotate it at its provider, then coordinate removal from repository history with collaborators. Removing a file in a later commit does not remove earlier versions from Git history.
+Considera comprometida cualquier credencial subida a GitHub, pegada en un issue o incluida en un historial compartido. Revócala o rótala con su proveedor y coordina la eliminación del historial con las demás personas colaboradoras. Borrar un archivo en un commit posterior no elimina sus versiones anteriores del historial de Git.
